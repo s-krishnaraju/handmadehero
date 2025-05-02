@@ -14,35 +14,12 @@ global_variable int BitmapSize;
 global_variable SDL_Texture* Texture;
 const int BYTES_PER_PIXEL = 4; // 3 bytes for RGB + 1 for alignment 
 
-// internal void RenderPixelGradient(int Width, int Height){ 
 
-//     int Pitch = Width * BYTES_PER_PIXEL;
-//     Uint8* Row = (Uint8*)BitmapMemory;
-//     for (int Y = 0;Y < Height;Y++) {
-//         Uint8* Pixel = (Uint8*)Row;
-//         for (int X = 0; X < Width; X++) {
-//             // Alignment  
-//             *Pixel = 0;
-//             Pixel += 1;
-//             // Blue
-//             *Pixel = 255;
-//             Pixel += 1;
-//             // Green 
-//             *Pixel = 1;
-//             Pixel += 1;
-//             // Red 
-//             *Pixel = 255;
-//             Pixel += 1;
-//         }
-//         Row += Pitch;
-//     }
-// }
-
-
-internal void RenderWeirdGradient(int BlueOffset = 0, int GreenOffset = 0) {
+internal void RenderWeirdGradient(int BlueOffset, int GreenOffset) {
     int Pitch = BitmapWidth * BYTES_PER_PIXEL;
     Uint8* Row = (Uint8*)BitmapMemory;
     for (int Y = 0;Y < BitmapHeight;Y++) {
+
         Uint32* Pixel = (Uint32*)Row;
         for (int X = 0; X < BitmapWidth; X++) {
             Uint8 Blue = (X + BlueOffset);
@@ -50,6 +27,7 @@ internal void RenderWeirdGradient(int BlueOffset = 0, int GreenOffset = 0) {
             *Pixel = ((Green << 8) | Blue);
             Pixel += 1;
         }
+        
         Row += Pitch;
     }
 }
@@ -64,13 +42,12 @@ internal void SDLResizeTexture(SDL_Renderer* Renderer, int Width, int Height) {
         SDL_DestroyTexture(Texture);
     }
 
-    SDL_Texture* Texture = SDL_CreateTexture(Renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, Width, Height);
+    Texture = SDL_CreateTexture(Renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, Width, Height);
 
     int NumPixels = Width * Height;
     BitmapMemory = mmap(0, NumPixels * BYTES_PER_PIXEL, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     BitmapWidth = Width;
     BitmapHeight = Height;
-    RenderWeirdGradient();
 }
 
 internal void SDLUpdateWindow(SDL_Renderer* Renderer) {
@@ -93,9 +70,7 @@ internal void HandleWindowEvent(SDL_WindowEvent Event) {
     {
         int Width, Height;
         SDL_GetWindowSize(Window, &Width, &Height);
-        printf("(%d,%d)", Width, Height);
-        printf("(%d,%d)", Event.data1, Event.data2); 
-        SDLResizeTexture(Renderer, Width, Height);
+        SDLResizeTexture(Renderer, Event.data1, Event.data2);
     }
     break;
     }
@@ -124,12 +99,25 @@ internal void HandleEvent(SDL_Event Event) {
     }
 }
 
-internal void StartEventLoop() {
+internal void StartEventLoop(SDL_Window* Window, SDL_Renderer* Renderer) {
     Running = true;
+
+    int Width, Height;
+    SDL_GetWindowSize(Window, &Width, &Height);
+    SDLResizeTexture(Renderer, Width, Height);
+
+    int XOffset = 0;
+    int YOffset = 0;
+
     while (Running) {
         SDL_Event Event;
-        SDL_WaitEvent(&Event); // get event
-        HandleEvent(Event);
+        while (SDL_PollEvent(&Event)) {
+            HandleEvent(Event);
+        }
+        RenderWeirdGradient(XOffset, YOffset);
+        SDLUpdateWindow(Renderer);
+        ++XOffset;
+        YOffset += 2;
     }
 }
 
@@ -146,7 +134,7 @@ int main(int argc, char* argv[]) {
     if (!Renderer)
         return 0;
 
-    StartEventLoop();
+    StartEventLoop(Window, Renderer);
 
     SDL_Quit();
     return 0;
