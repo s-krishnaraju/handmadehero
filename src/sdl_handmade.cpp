@@ -1,6 +1,8 @@
 #include <SDL.h>
-#include <stdlib.h>
+#include <stdio.h>
 #include <sys/mman.h>
+#include <stdint.h>
+
 
 #define internal static
 #define global_variable static
@@ -42,7 +44,7 @@ internal void SDLResizeTexture(SDL_Renderer* Renderer, int Width, int Height) {
         SDL_DestroyTexture(Texture);
     }
 
-    Texture = SDL_CreateTexture(Renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, Width, Height);
+    Texture = SDL_CreateTexture(Renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, Width, Height);
 
     int NumPixels = Width * Height;
     BitmapMemory = mmap(0, NumPixels * BYTES_PER_PIXEL, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
@@ -68,8 +70,6 @@ internal void HandleWindowEvent(SDL_WindowEvent Event) {
 
     case SDL_WINDOWEVENT_SIZE_CHANGED:
     {
-        int Width, Height;
-        SDL_GetWindowSize(Window, &Width, &Height);
         SDLResizeTexture(Renderer, Event.data1, Event.data2);
     }
     break;
