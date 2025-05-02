@@ -1,49 +1,112 @@
 #include <SDL.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 
 #define internal static
 #define global_variable static
 
+// TODO: Maybe make these not global 
 global_variable bool Running;
-global_variable int TextureWidth;
+global_variable int BitmapWidth;
+global_variable int BitmapHeight;
+global_variable void* BitmapMemory;
+global_variable int BitmapSize;
 global_variable SDL_Texture* Texture;
-global_variable void* Pixels;
-const int PIXEL_SIZE = 4;
+const int BYTES_PER_PIXEL = 4; // 3 bytes for RGB + 1 for alignment 
+
+// internal void RenderPixelGradient(int Width, int Height){ 
+
+//     int Pitch = Width * BYTES_PER_PIXEL;
+//     Uint8* Row = (Uint8*)BitmapMemory;
+//     for (int Y = 0;Y < Height;Y++) {
+//         Uint8* Pixel = (Uint8*)Row;
+//         for (int X = 0; X < Width; X++) {
+//             // Alignment  
+//             *Pixel = 0;
+//             Pixel += 1;
+//             // Blue
+//             *Pixel = 255;
+//             Pixel += 1;
+//             // Green 
+//             *Pixel = 1;
+//             Pixel += 1;
+//             // Red 
+//             *Pixel = 255;
+//             Pixel += 1;
+//         }
+//         Row += Pitch;
+//     }
+// }
+
+
+internal void RenderWeirdGradient(int BlueOffset = 0, int GreenOffset = 0) {
+    int Pitch = BitmapWidth * BYTES_PER_PIXEL;
+    Uint8* Row = (Uint8*)BitmapMemory;
+    for (int Y = 0;Y < BitmapHeight;Y++) {
+        Uint32* Pixel = (Uint32*)Row;
+        for (int X = 0; X < BitmapWidth; X++) {
+            Uint8 Blue = (X + BlueOffset);
+            Uint8 Green = (Y + GreenOffset);
+            *Pixel = ((Green << 8) | Blue);
+            Pixel += 1;
+        }
+        Row += Pitch;
+    }
+}
 
 internal void SDLResizeTexture(SDL_Renderer* Renderer, int Width, int Height) {
+
+    if (BitmapMemory) {
+        munmap(BitmapMemory, BitmapWidth * BitmapHeight * BYTES_PER_PIXEL);
+    }
+
     if (Texture) {
         SDL_DestroyTexture(Texture);
     }
 
-    if (Pixels) {
-        free(Pixels);
-    }
-
     SDL_Texture* Texture = SDL_CreateTexture(Renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, Width, Height);
+
     int NumPixels = Width * Height;
-    void* Pixels = malloc(NumPixels * PIXEL_SIZE); //  Width*Height is num of pixels
-    TextureWidth = Width;
+    BitmapMemory = mmap(0, NumPixels * BYTES_PER_PIXEL, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    BitmapWidth = Width;
+    BitmapHeight = Height;
+    RenderWeirdGradient();
 }
 
-internal bool HandleEvent(SDL_Event* Event) {
-    switch (Event->type) {
+internal void SDLUpdateWindow(SDL_Renderer* Renderer) {
+    SDL_UpdateTexture(Texture, 0, BitmapMemory, BitmapWidth * BYTES_PER_PIXEL);
+    SDL_RenderCopy(Renderer, Texture, 0, 0);
+    SDL_RenderPresent(Renderer);
+}
+
+internal void HandleWindowEvent(SDL_WindowEvent Event) {
+    SDL_Window* Window = SDL_GetWindowFromID(Event.windowID);
+    SDL_Renderer* Renderer = SDL_GetRenderer(Window);
+    switch (Event.event) {
+    case SDL_WINDOWEVENT_EXPOSED:
+    {
+        SDLUpdateWindow(Renderer);
+    }
+    break;
+
+    case SDL_WINDOWEVENT_SIZE_CHANGED:
+    {
+        int Width, Height;
+        SDL_GetWindowSize(Window, &Width, &Height);
+        printf("(%d,%d)", Width, Height);
+        printf("(%d,%d)", Event.data1, Event.data2); 
+        SDLResizeTexture(Renderer, Width, Height);
+    }
+    break;
+    }
+
+}
+
+internal void HandleEvent(SDL_Event Event) {
+    switch (Event.type) {
     case SDL_WINDOWEVENT:
     {
-        SDL_WindowEvent WindowEvent = Event->window;
-        SDL_Window* window = SDL_GetWindowFromID(WindowEvent.windowID);
-        switch (WindowEvent.event) {
-        case SDL_WINDOWEVENT_EXPOSED:
-        {
-
-        }
-        break;
-
-        case SDL_WINDOWEVENT_RESIZED:
-        {
-            printf("SDL_WINDOWEVENT_RESIZED (%d, %d)\n", WindowEvent.data1, WindowEvent.data2);
-        }
-        break;
-        }
+        HandleWindowEvent(Event.window);
     }
     break;
 
@@ -62,11 +125,11 @@ internal bool HandleEvent(SDL_Event* Event) {
 }
 
 internal void StartEventLoop() {
-    while (Running) // Main event loop
-    {
+    Running = true;
+    while (Running) {
         SDL_Event Event;
-        SDL_WaitEvent(&Event);
-        HandleEvent(&Event);
+        SDL_WaitEvent(&Event); // get event
+        HandleEvent(Event);
     }
 }
 
