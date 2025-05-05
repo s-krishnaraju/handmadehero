@@ -1,89 +1,57 @@
 #include <SDL.h>
-#include <math.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 
-#define internal static
-#define global_variable static
-typedef float real32;
-typedef double real64;
-typedef int8_t int8;
-typedef int16_t int16;
-typedef int32_t int32;
-typedef int64_t int64;
+#include "handmade.cpp"
+#include "sdl_handmade.h"
 
-struct sdl_window_dimension {
-    int Width;
-    int Height;
-};
+/*
+NOT FINAL PLATFORM LAYER
+ - Saved game location
+ - Handle to our exe
+ - Asset loading path
+ - Threading
+ - Raw input
+ - Sleep/ timeBeginPeriod
+ - FullScreen support
+ - Blit Speed improvements (do we need this? )
+ - Hardware Acceleration (OpenGL)
+*/
 
-struct sdl_offscreen_buffer {
-    SDL_Texture *Texture;
-    void *Memory;
-    int Width;
-    int Height;
-};
-
-struct sdl_audio_data {
-    int SamplesPerSecond;
-    int ToneHz;
-    int ToneVolume;
-    int BytesPerSample;
-    Uint32 RunningSampleIndex;
-};
 
 // Constants
-global_variable const int BYTES_PER_PIXEL = 4; // 3 bytes for RGB + 1 for alignment
 global_variable const int MAX_CONTROLLERS = 4;
-global_variable const real32 PI32 = 3.14159265358979f;
 // TODO: Maybe make these not global
-global_variable sdl_offscreen_buffer GlobalBackBuffer;
-global_variable sdl_audio_data SDLAudioData;
-global_variable bool Running;
+global_variable SDL_Texture *GlobalSDLTexture;
+global_variable game_offscreen_buffer GlobalBackBuffer;
+global_variable bool GlobalRunning;
 // These pointers get initialized to zero since global
 global_variable SDL_GameController *ControllerHandles[MAX_CONTROLLERS];
 global_variable SDL_Haptic *HapticHandles[MAX_CONTROLLERS];
 
-internal void RenderWeirdGradient(sdl_offscreen_buffer Buffer, int BlueOffset, int GreenOffset) {
-    int Pitch = Buffer.Width * BYTES_PER_PIXEL;
-    Uint8 *Row = (Uint8 *)Buffer.Memory;
-    for (int Y = 0; Y < Buffer.Height; Y++) {
-
-        Uint32 *Pixel = (Uint32 *)Row;
-        for (int X = 0; X < Buffer.Width; X++) {
-            Uint8 Blue = (X + BlueOffset);
-            Uint8 Green = (Y + GreenOffset);
-            *Pixel = ((Green << 8) | Blue);
-            Pixel++;
-        }
-
-        Row += Pitch;
-    }
-}
-
-internal void SDLResizeTexture(sdl_offscreen_buffer *Buffer, SDL_Renderer *Renderer, sdl_window_dimension WindowDimension) {
+internal void SDLResizeTexture(game_offscreen_buffer *Buffer, SDL_Renderer *Renderer, sdl_window_dimension WindowDimension) {
+    int BytesPerPixel = 4; // 3 bytes for RGB + 1 for alignment
 
     if (Buffer->Memory) {
-        munmap(Buffer->Memory, Buffer->Width * Buffer->Height * BYTES_PER_PIXEL);
+        munmap(Buffer->Memory, Buffer->Width * Buffer->Height * BytesPerPixel);
     }
 
-    if (Buffer->Texture) {
-        SDL_DestroyTexture(Buffer->Texture);
+    if (GlobalSDLTexture) {
+        SDL_DestroyTexture(GlobalSDLTexture);
     }
-
-    Buffer->Texture = SDL_CreateTexture(Renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, WindowDimension.Width, WindowDimension.Height);
 
     int NumPixels = WindowDimension.Width * WindowDimension.Height;
-    Buffer->Memory = mmap(0, NumPixels * BYTES_PER_PIXEL, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    GlobalSDLTexture = SDL_CreateTexture(Renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, WindowDimension.Width, WindowDimension.Height);
+    Buffer->Memory = mmap(0, NumPixels * BytesPerPixel, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     Buffer->Width = WindowDimension.Width;
     Buffer->Height = WindowDimension.Height;
+    Buffer->Pitch = BytesPerPixel * Buffer->Width;
 }
 
-internal void SDLUpdateWindow(sdl_offscreen_buffer Buffer, SDL_Renderer *Renderer) {
-    SDL_UpdateTexture(Buffer.Texture, 0, Buffer.Memory, Buffer.Width * BYTES_PER_PIXEL);
-    SDL_RenderCopy(Renderer, Buffer.Texture, 0, 0);
+internal void SDLUpdateWindow(game_offscreen_buffer Buffer, SDL_Renderer *Renderer) {
+    SDL_RenderClear(Renderer);
+    SDL_UpdateTexture(GlobalSDLTexture, 0, Buffer.Memory, Buffer.Pitch);
+    SDL_RenderCopy(Renderer, GlobalSDLTexture, 0, 0);
     SDL_RenderPresent(Renderer);
 }
 
@@ -112,7 +80,7 @@ internal void HandleKeyboardEvent(SDL_KeyboardEvent Event) {
     case SDLK_F4: {
         bool AltKeyWasDown = Event.keysym.mod & KMOD_ALT;
         if (AltKeyWasDown) {
-            Running = false;
+            GlobalRunning = false;
         }
     } break;
     case SDLK_ESCAPE: {
@@ -124,11 +92,9 @@ internal void HandleKeyboardEvent(SDL_KeyboardEvent Event) {
     case SDLK_LEFT: {
     } break;
     case SDLK_DOWN: {
-        SDLAudioData.ToneHz -= 10; 
 
     } break;
     case SDLK_UP: {
-        SDLAudioData.ToneHz += 10; 
     } break;
     case SDLK_e: {
     } break;
@@ -159,7 +125,7 @@ internal void HandleEvent(SDL_Event Event) {
 
     case SDL_QUIT: {
         printf("SDL QUIT\n");
-        Running = false;
+        GlobalRunning = false;
     } break;
     }
 }
@@ -236,98 +202,132 @@ internal void PollGameControllers() {
     }
 }
 
-internal int16 GetSineSampleValue(sdl_audio_data *AudioData) {
-    int WavePeriod = AudioData->SamplesPerSecond/ AudioData->ToneHz;
-    real32 Time = (real32)AudioData->RunningSampleIndex / (real32)WavePeriod;
-    real32 RadAngle = 2.0f * PI32 * Time;
-    real32 SampleVal = sinf(RadAngle) * AudioData->ToneVolume;
-    return (int16)SampleVal;
-}
-
-internal void SDLAudioCallback(void *UserData, Uint8 *Stream, int Length) {
-    memset(Stream, 0, Length);
-    sdl_audio_data *AudioData = (sdl_audio_data *)UserData;
-    int16 *OutputStream = (int16 *)Stream;
-    int NumSamples = Length / AudioData->BytesPerSample;
-
-    // Maybe move this to main event loop
-    // We want Audio to be tied to individual frames 
-    // So keep a buffer and just memcpy in Stream here
-
-    for (int i = 0; i < NumSamples; i++) {
-        int16 SampleValue = GetSineSampleValue(AudioData);
-        // Set left and right channels values
-        *OutputStream = SampleValue;
-        OutputStream++;
-        *OutputStream = SampleValue;
-        OutputStream++;
-        AudioData->RunningSampleIndex++;
+internal void FeedAudioDevice(circular_audio_buffer *AudioBuffer, game_sound_output_buffer *SoundBuffer) {
+    int TargetCursor = (AudioBuffer->ReadCursor - AudioBuffer->LatencySampleCount * AudioBuffer->BytesPerSample) % AudioBuffer->Size;
+    int RegionOne = TargetCursor - AudioBuffer->WriteCursor;
+    int RegionTwo = 0;
+    if (TargetCursor < AudioBuffer->WriteCursor) {
+        RegionOne = AudioBuffer->Size - AudioBuffer->WriteCursor;
+        RegionTwo = TargetCursor;
     }
+
+    int RegionOneSamples = RegionOne / AudioBuffer->BytesPerSample;
+    int RegionTwoSamples = RegionTwo / AudioBuffer->BytesPerSample;
+    int BytesToWrite = RegionOne + RegionTwo;
+
+    SoundBuffer->SampleCount = BytesToWrite / AudioBuffer->BytesPerSample;
+    OutputGameSound(SoundBuffer);
+
+    SDL_LockAudioDevice(AudioBuffer->DeviceID);
+    int16 *Buffer1 = (int16 *)(AudioBuffer->Buffer + AudioBuffer->WriteCursor);
+    int16 *Buffer2 = SoundBuffer->Samples;  
+    for (int i = 0; i < RegionOneSamples; i++) {
+        int16 SampleValue = SoundBuffer->Samples[i];
+        *Buffer1++ = *Buffer2++;
+        *Buffer1++ = *Buffer2++;
+        AudioBuffer->SampleIndex++;
+    }
+
+    Buffer1 = (int16 *)AudioBuffer->Buffer;
+    for (int i = 0; i < RegionTwoSamples; i++) {
+        int16 SampleValue = SoundBuffer->Samples[RegionOneSamples + i];
+        *Buffer1++ = *Buffer2++;
+        *Buffer1++ = *Buffer2++;
+        AudioBuffer->SampleIndex++;
+    }
+
+    AudioBuffer->WriteCursor = (AudioBuffer->WriteCursor + BytesToWrite) % AudioBuffer->Size;
+    SDL_UnlockAudioDevice(AudioBuffer->DeviceID);
 }
 
-internal SDL_AudioDeviceID InitSDLAudio() {
-    // Placeholder, assume we are running 60 fps
-    int FramesPerSecond = 60;
-    SDLAudioData.ToneHz = 256;
-    SDLAudioData.ToneVolume = 3000;
-    SDLAudioData.SamplesPerSecond = 48000;
-    // period is number of samples per cycle
-    SDLAudioData.BytesPerSample = sizeof(int16) * 2;
-    // Num samples per frame (left and right channel samples)
-    int NumSamples = SDLAudioData.SamplesPerSecond / FramesPerSecond;
+internal void SDLAudioCallback(void *UserData, uint8 *OutputAudio, int Length) {
+    circular_audio_buffer *AudioBuffer = (circular_audio_buffer *)UserData;
+    int RegionOne = Length;
+    int RegionTwo = 0;
+    if (AudioBuffer->ReadCursor + Length > AudioBuffer->Size) {
+        RegionOne = AudioBuffer->Size - AudioBuffer->ReadCursor;
+        RegionTwo = Length - RegionOne;
+    }
 
-    SDL_AudioSpec AudioSpec = {0};
-    SDL_AudioSpec DesiredAudioSpec = {0};
-    DesiredAudioSpec.freq = SDLAudioData.SamplesPerSecond;
-    // Samples are signed 16bit integers in little endian order
+    memcpy(OutputAudio, AudioBuffer->Buffer + AudioBuffer->ReadCursor, RegionOne);
+    memcpy(OutputAudio + RegionOne, AudioBuffer->Buffer, RegionTwo);
+    AudioBuffer->ReadCursor = (AudioBuffer->ReadCursor + Length) % AudioBuffer->Size;
+}
+
+internal void InitSDLAudio(circular_audio_buffer *AudioBuffer, game_sound_output_buffer *SoundOutput) {
+
+    AudioBuffer->SamplesPerSecond = 44100;
+    AudioBuffer->BytesPerSample = sizeof(int16) * 2;
+    AudioBuffer->Size = (AudioBuffer->SamplesPerSecond * AudioBuffer->BytesPerSample);
+    AudioBuffer->Buffer = (uint8 *)calloc(AudioBuffer->Size, 1);
+    // NOTE: offset write cursor by one sample to fill initial buffer
+    AudioBuffer->WriteCursor = AudioBuffer->BytesPerSample;
+    AudioBuffer->ReadCursor = 0;
+    AudioBuffer->LatencySampleCount = AudioBuffer->SamplesPerSecond / 15;
+
+    SoundOutput->SamplesPerSecond = AudioBuffer->SamplesPerSecond;
+    SoundOutput->Samples = (int16 *)calloc(AudioBuffer->Size, 1);
+
+    SDL_AudioSpec DesiredAudioSpec = {};
+    SDL_AudioSpec ObtainedAudioSpec = {};
+
+    DesiredAudioSpec.freq = AudioBuffer->SamplesPerSecond;
     DesiredAudioSpec.format = AUDIO_S16;
     DesiredAudioSpec.callback = &SDLAudioCallback;
     DesiredAudioSpec.channels = 2;
-    // Divide b/c 2 channels
-    DesiredAudioSpec.samples = NumSamples / 2;
-    DesiredAudioSpec.userdata = &SDLAudioData;
+    DesiredAudioSpec.samples = 4096;
+    DesiredAudioSpec.userdata = AudioBuffer;
 
-    SDL_AudioDeviceID DeviceID = SDL_OpenAudioDevice(NULL, 0, &DesiredAudioSpec, &AudioSpec, 0);
+    AudioBuffer->DeviceID = SDL_OpenAudioDevice(NULL, 0, &DesiredAudioSpec, &ObtainedAudioSpec, 0);
 
-    if (AudioSpec.format != AUDIO_S16) {
+    if (ObtainedAudioSpec.format != DesiredAudioSpec.format) {
         printf("Obtained SDL Spec doesn't match requested format\n");
-        SDL_CloseAudioDevice(DeviceID);
-
-    } else {
-        // Unpause device
-        SDL_PauseAudioDevice(DeviceID, 0);
+        SDL_CloseAudioDevice(AudioBuffer->DeviceID);
+        return;
     }
-    return DeviceID;
+
+    SDL_PauseAudioDevice(AudioBuffer->DeviceID, 0);
 }
 
 internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
-    Running = true;
+    circular_audio_buffer CircularBuffer;
+    game_sound_output_buffer GameSoundBuffer;
+
+    GlobalRunning = true;
     sdl_window_dimension WindowDimensions = GetWindowDimensions(Window);
     SDLResizeTexture(&GlobalBackBuffer, Renderer, WindowDimensions);
+    InitGameControllers();
+    InitSDLAudio(&CircularBuffer, &GameSoundBuffer);
 
     int XOffset = 0;
     int YOffset = 0;
-
-    InitGameControllers();
-    SDL_AudioDeviceID AudioDeviceID = InitSDLAudio();
-
-    while (Running) {
+    uint64 CountersPerSecond = SDL_GetPerformanceFrequency();
+    uint64 LastCounter = SDL_GetPerformanceCounter();
+    while (GlobalRunning) {
 
         SDL_Event Event;
         while (SDL_PollEvent(&Event)) {
             HandleEvent(Event);
         }
 
-        // Handle sine wave generation for audio, write to buffer
         PollGameControllers();
-        RenderWeirdGradient(GlobalBackBuffer, XOffset, YOffset);
         SDLUpdateWindow(GlobalBackBuffer, Renderer);
+        GameUpdateAndRender(&GlobalBackBuffer);
+        FeedAudioDevice(&CircularBuffer, &GameSoundBuffer);
 
-        XOffset++;
-        YOffset += 2;
+        int EndCounter = SDL_GetPerformanceCounter();
+        int ElapsedCounters = EndCounter - LastCounter;
+        int MSPerFrame = (ElapsedCounters * 1000) / CountersPerSecond;
+        int FPS = CountersPerSecond / ElapsedCounters;
+        LastCounter = EndCounter;
     }
 
-    SDL_CloseAudioDevice(AudioDeviceID);
+    SDL_CloseAudioDevice(CircularBuffer.DeviceID);
+
+    // We might want to free some more ptrs
+    free(CircularBuffer.Buffer);
+    free(GameSoundBuffer.Samples);
+
     CloseGameControllers();
 }
 
