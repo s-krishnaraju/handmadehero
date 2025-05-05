@@ -1,14 +1,19 @@
+/*
+    NOTE:
+
+    HANDMADE_INTERNAL
+        0 = Build for public release
+        1 = Build for developer only
+
+    HANDMADE_SLOW
+        0 = No slow code allowed
+        1 = Slow code allowed!
+*/
+
 #if !defined(HANDMADE_H)
 
-#define internal static
-#define global_variable static
-
-#define Kilobytes(Value) ((Value) * 1024LL)
-#define Megabytes(Value) (Kilobytes(Value) * 1024LL)
-#define Gigabytes(Value) (Megabytes(Value) * 1024LL)
-#define Terabytes(Value) (Gigabytes(Value) * 1024LL)
-
 #if HANDMADE_SLOW
+
 #define Assert(Expression)                                                     \
     if (!(Expression)) {                                                       \
         *(int *)0 = 0;                                                         \
@@ -17,16 +22,28 @@
 #define Assert(Expression)
 #endif
 
-typedef float real32;
-typedef double real64;
-typedef int8_t int8;
-typedef int16_t int16;
-typedef int32_t int32;
-typedef int64_t int64;
-typedef uint8_t uint8;
-typedef uint16_t uint16;
-typedef uint32_t uint32;
-typedef uint64_t uint64;
+#define Kilobytes(Value) ((Value) * 1024LL)
+#define Megabytes(Value) (Kilobytes(Value) * 1024LL)
+#define Gigabytes(Value) (Megabytes(Value) * 1024LL)
+#define Terabytes(Value) (Gigabytes(Value) * 1024LL)
+
+inline uint32 SafeTrunacateUint64(uint64 Value) {
+    // check if less than 4GB
+    Assert(Value <= 0xFFFFFFFF);
+    uint32 Result = (uint32)Value;
+    return Result;
+}
+
+struct debug_read_file_result {
+    uint32 ContentSize;
+    void *Contents;
+};
+#if HANDMADE_INTERNAL
+internal debug_read_file_result DEBUGPlatformReadEntireFile(char *Filename);
+internal void DEBUGPlatformFreeFileMemory(void *Memory);
+internal bool DEBUGPlatformWriteEntireFile(char *Filename, uint32 MemorySize,
+                                           void *Memory);
+#endif
 
 struct game_offscreen_buffer {
     void *Memory;

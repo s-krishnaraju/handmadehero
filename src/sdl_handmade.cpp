@@ -1,12 +1,6 @@
-#include <SDL.h>
-#include <string.h>
-#include <sys/mman.h>
-
-#include "handmade.cpp"
-#include "sdl_handmade.h"
-
 /*
 NOT FINAL PLATFORM LAYER
+We maybe want
  - Saved game location
  - Handle to our exe
  - Asset loading path
@@ -18,6 +12,37 @@ NOT FINAL PLATFORM LAYER
  - Hardware Acceleration (OpenGL)
 */
 
+#include <math.h>
+#include <stdint.h>
+
+#define internal static
+#define global_variable static
+#define Pi32 3.14159265359f
+
+typedef float real32;
+typedef double real64;
+
+typedef int8_t int8;
+typedef int16_t int16;
+typedef int32_t int32;
+typedef int64_t int64;
+
+typedef uint8_t uint8;
+typedef uint16_t uint16;
+typedef uint32_t uint32;
+typedef uint64_t uint64;
+
+#include "handmade.cpp"
+
+#include <SDL.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#include "sdl_handmade.h"
+
 // Constants
 global_variable const int MAX_CONTROLLERS = 4;
 // TODO: Maybe make these not global
@@ -27,6 +52,72 @@ global_variable bool GlobalRunning;
 // These pointers get initialized to zero since global
 global_variable SDL_GameController *ControllerHandles[MAX_CONTROLLERS];
 global_variable SDL_Haptic *HapticHandles[MAX_CONTROLLERS];
+
+internal void DEBUGPlatformFreeFileMemory(void *Memory) { free(Memory); }
+
+internal bool DEBUGPlatformWriteEntireFile(char *Filename, uint32 MemorySize,
+                                           void *Memory) {
+    int FileHandle = open(Filename, O_WRONLY | O_CREAT,
+                          S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    if (FileHandle == -1) {
+        return false;
+    }
+
+    uint32 BytesToWrite = MemorySize;
+    uint8 *NextByteLocation = (uint8 *)Memory;
+    while (BytesToWrite) {
+        uint32 BytesWritten = write(FileHandle, NextByteLocation, BytesToWrite);
+        if (BytesWritten == -1) {
+            close(FileHandle);
+            return false;
+        }
+
+        NextByteLocation += BytesWritten;
+        BytesToWrite -= BytesWritten;
+    }
+
+    close(FileHandle);
+    return true;
+}
+
+internal debug_read_file_result DEBUGPlatformReadEntireFile(char *Filename) {
+    debug_read_file_result Result = {};
+    int FileHandle = open(Filename, O_RDONLY);
+    if (FileHandle == -1) {
+        return Result;
+    }
+
+    struct stat FileStatus;
+    if (fstat(FileHandle, &FileStatus) == -1) {
+        return Result;
+    }
+
+    Result.ContentSize = SafeTrunacateUint64(FileStatus.st_size);
+    Result.Contents = malloc(Result.ContentSize);
+    if (!Result.Contents) {
+        Result.ContentSize = 0;
+        close(FileHandle);
+        return Result;
+    }
+
+    uint32 BytesToRead = Result.ContentSize;
+    uint8 *NextByteLocation = (uint8 *)Result.Contents;
+    while (BytesToRead) {
+        uint32 ReadBytes = read(FileHandle, NextByteLocation, BytesToRead);
+        if (ReadBytes == -1) {
+            free(Result.Contents);
+            Result.Contents = 0;
+            Result.ContentSize = 0;
+            close(FileHandle);
+            return Result;
+        }
+        BytesToRead -= ReadBytes;
+        NextByteLocation += ReadBytes;
+    }
+
+    close(FileHandle);
+    return Result;
+}
 
 internal void SDLResizeTexture(game_offscreen_buffer *Buffer,
                                SDL_Renderer *Renderer,
@@ -268,7 +359,7 @@ internal void SDLFeedAudioDevice(circular_audio_buffer *AudioBuffer,
     int BytesOffset = AudioBuffer->WriteCursor;
 
     for (int i = 0; i < SoundBuffer->SampleCount; i++) {
-        BytesOffset += AudioBuffer->BytesPerSample; 
+        BytesOffset += AudioBuffer->BytesPerSample;
         BytesOffset = BytesOffset % AudioBuffer->Size;
         Buffer1 = (int16 *)(AudioBuffer->Buffer + BytesOffset);
         *Buffer1++ = *Buffer2++;

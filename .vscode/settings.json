@@ -1,5 +1,13 @@
 {
     "files.associations": {
-        "cstdint": "cpp"
+        "cstdint": "cpp",
+        "type_traits": "cpp",
+        "optional": "cpp",
+        "numeric": "cpp",
+        "stdexcept": "cpp",
+        "streambuf": "cpp",
+        "functional": "cpp",
+        "algorithm": "cpp",
+        "cstdio": "cpp"
     }
 }

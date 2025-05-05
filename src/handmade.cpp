@@ -1,9 +1,5 @@
 #include "handmade.h"
-#include <math.h>
-#include <stdint.h>
 
-
-global_variable const real32 PI32 = 3.14159265358979f;
 global_variable int ToneHz = 256;
 global_variable int ToneVolume = 3000;
 global_variable int SampleIndex = 0;
@@ -13,7 +9,7 @@ global_variable int GreenOffset = 0;
 internal int16 GetSineSampleValue(int SampleIndex, int ToneVolume,
                                   int WavePeriod) {
     real32 Time = (real32)SampleIndex / (real32)WavePeriod;
-    real32 RadAngle = 2.0f * PI32 * Time;
+    real32 RadAngle = 2.0f * Pi32 * Time;
     real32 SampleVal = sinf(RadAngle) * ToneVolume;
     return (int16)SampleVal;
 }
@@ -54,7 +50,7 @@ internal void RenderWeirdGradient(game_offscreen_buffer *Buffer) {
 // drawing
 internal void GameUpdateAndRender(game_memory *Memory,
                                   game_offscreen_buffer *BackBuffer,
-                                  game_sound_output_buffer *SoundBuffer, 
+                                  game_sound_output_buffer *SoundBuffer,
                                   game_input *Input) {
     game_state *GameState = (game_state *)Memory;
     if (!Memory->IsInitialized) {
@@ -66,7 +62,7 @@ internal void GameUpdateAndRender(game_memory *Memory,
         Memory->IsInitialized = true;
     }
 
-    OutputGameSound(SoundBuffer); 
+    OutputGameSound(SoundBuffer);
     RenderWeirdGradient(BackBuffer);
     // TODO: Handle game controller input
 }

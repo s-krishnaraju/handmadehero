@@ -1,3 +1,5 @@
+
+
 struct sdl_window_dimension {
     int Width;
     int Height;
@@ -14,3 +16,6 @@ struct circular_audio_buffer {
     int SampleIndex;
     SDL_AudioDeviceID DeviceID;
 };
+
+
+
