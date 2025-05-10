@@ -15,6 +15,7 @@ We maybe want
 #include <math.h>
 #include <stdint.h>
 
+#define local_persist static
 #define internal static
 #define global_variable static
 #define Pi32 3.14159265359f
@@ -26,6 +27,8 @@ typedef int8_t int8;
 typedef int16_t int16;
 typedef int32_t int32;
 typedef int64_t int64;
+
+typedef int32 bool32;
 
 typedef uint8_t uint8;
 typedef uint16_t uint16;
@@ -43,20 +46,18 @@ typedef uint64_t uint64;
 
 #include "sdl_handmade.h"
 
-// Constants
-global_variable const int MAX_CONTROLLERS = 4;
 // TODO: Maybe make these not global
 global_variable SDL_Texture *GlobalSDLTexture;
 global_variable game_offscreen_buffer GlobalBackBuffer;
-global_variable bool GlobalRunning;
+global_variable bool32 GlobalRunning;
 // These pointers get initialized to zero since global
-global_variable SDL_GameController *ControllerHandles[MAX_CONTROLLERS];
-global_variable SDL_Haptic *HapticHandles[MAX_CONTROLLERS];
+global_variable SDL_GameController *ControllerHandles[NUM_GAME_CONTROLLERS];
+global_variable SDL_Haptic *HapticHandles[NUM_GAME_CONTROLLERS];
 
 internal void DEBUGPlatformFreeFileMemory(void *Memory) { free(Memory); }
 
-internal bool DEBUGPlatformWriteEntireFile(char *Filename, uint32 MemorySize,
-                                           void *Memory) {
+internal bool32 DEBUGPlatformWriteEntireFile(char *Filename, uint32 MemorySize,
+                                             void *Memory) {
     int FileHandle = open(Filename, O_WRONLY | O_CREAT,
                           S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
     if (FileHandle == -1) {
@@ -66,7 +67,7 @@ internal bool DEBUGPlatformWriteEntireFile(char *Filename, uint32 MemorySize,
     uint32 BytesToWrite = MemorySize;
     uint8 *NextByteLocation = (uint8 *)Memory;
     while (BytesToWrite) {
-        uint32 BytesWritten = write(FileHandle, NextByteLocation, BytesToWrite);
+        int BytesWritten = write(FileHandle, NextByteLocation, BytesToWrite);
         if (BytesWritten == -1) {
             close(FileHandle);
             return false;
@@ -103,7 +104,7 @@ internal debug_read_file_result DEBUGPlatformReadEntireFile(char *Filename) {
     uint32 BytesToRead = Result.ContentSize;
     uint8 *NextByteLocation = (uint8 *)Result.Contents;
     while (BytesToRead) {
-        uint32 ReadBytes = read(FileHandle, NextByteLocation, BytesToRead);
+        int ReadBytes = read(FileHandle, NextByteLocation, BytesToRead);
         if (ReadBytes == -1) {
             free(Result.Contents);
             Result.Contents = 0;
@@ -165,65 +166,72 @@ internal void HandleWindowEvent(SDL_WindowEvent Event) {
     }
 }
 
-internal void HandleKeyboardEvent(SDL_KeyboardEvent Event) {
+internal void SDLProcessKeyPress(game_button_state *NewState, bool32 isDown) {
+    NewState->EndedDown = isDown;
+    NewState->HalfTransition++;
+}
+
+internal void HandleKeyboardEvent(SDL_KeyboardEvent Event, game_controller_input* Controller) {
     SDL_Keycode Keycode = Event.keysym.sym;
-    bool WasDown = false;
+    bool32 IsDown = Event.state == SDL_PRESSED;
+    bool32 WasDown = false;
     if (Event.state == SDL_RELEASED || Event.repeat != 0) {
         WasDown = true;
     }
 
-    switch (Keycode) {
-    case SDLK_F4: {
-        bool AltKeyWasDown = Event.keysym.mod & KMOD_ALT;
+
+    if (Keycode == SDLK_F4) {
+        bool32 AltKeyWasDown = Event.keysym.mod & KMOD_ALT;
         if (AltKeyWasDown) {
             GlobalRunning = false;
         }
+        return;
+    }
+
+    if (Event.repeat != 0) {
+        return;
+    }
+
+    switch (Keycode) {
+    case SDLK_w: {
+        SDLProcessKeyPress(&Controller->MoveUp, IsDown);
+    } break;
+
+    case SDLK_a: {
+        SDLProcessKeyPress(&Controller->MoveLeft, IsDown);
+    } break;
+    case SDLK_s: {
+        SDLProcessKeyPress(&Controller->MoveDown, IsDown);
+    } break;
+    case SDLK_d: {
+        SDLProcessKeyPress(&Controller->MoveRight, IsDown);
+    } break;
+    case SDLK_q: {
+        SDLProcessKeyPress(&Controller->LeftShoulder, IsDown);
+    } break;
+    case SDLK_e: {
+        SDLProcessKeyPress(&Controller->RightShoulder, IsDown);
+    } break;
+    case SDLK_UP: {
+        SDLProcessKeyPress(&Controller->ActionUp, IsDown);
+    } break;
+    case SDLK_LEFT: {
+        SDLProcessKeyPress(&Controller->ActionLeft, IsDown);
+    } break;
+    case SDLK_DOWN: {
+        SDLProcessKeyPress(&Controller->ActionDown, IsDown);
+    } break;
+    case SDLK_RIGHT: {
+        SDLProcessKeyPress(&Controller->ActionRight, IsDown);
     } break;
     case SDLK_ESCAPE: {
     } break;
     case SDLK_SPACE: {
     } break;
-    case SDLK_RIGHT: {
-    } break;
-    case SDLK_LEFT: {
-    } break;
-    case SDLK_DOWN: {
-    } break;
-    case SDLK_UP: {
-    } break;
-    case SDLK_e: {
-    } break;
-    case SDLK_q: {
-    } break;
-    case SDLK_d: {
-    } break;
-    case SDLK_s: {
-    } break;
-    case SDLK_w: {
-    } break;
-    case SDLK_a: {
-        printf("A WAS PRESSED\n");
-    } break;
     }
 }
 
-internal void HandleEvent(SDL_Event Event) {
-    switch (Event.type) {
-    case SDL_WINDOWEVENT: {
-        HandleWindowEvent(Event.window);
-    } break;
-
-    case SDL_KEYDOWN:
-    case SDL_KEYUP: {
-        HandleKeyboardEvent(Event.key);
-    } break;
-
-    case SDL_QUIT: {
-        printf("SDL QUIT\n");
-        GlobalRunning = false;
-    } break;
-    }
-}
+internal void HandleEvent(SDL_Event Event) {}
 
 internal sdl_window_dimension GetWindowDimensions(SDL_Window *Window) {
     sdl_window_dimension dimension;
@@ -238,7 +246,7 @@ internal void InitGameControllers() {
         return;
     }
 
-    for (int i = 0; i < MAX_CONTROLLERS; i++) {
+    for (int i = 0; i < NUM_GAME_CONTROLLERS; i++) {
         if (SDL_IsGameController(i)) {
             SDL_GameController *Controller = SDL_GameControllerOpen(i);
             ControllerHandles[i] = Controller;
@@ -254,7 +262,7 @@ internal void InitGameControllers() {
 }
 
 internal void CloseGameControllers() {
-    for (int i = 0; i < MAX_CONTROLLERS; i++) {
+    for (int i = 0; i < NUM_GAME_CONTROLLERS; i++) {
         if (ControllerHandles[i]) {
             SDL_GameControllerClose(ControllerHandles[i]);
         }
@@ -273,8 +281,7 @@ internal void SDLProcessButtonState(SDL_GameController *ControllerHandle,
 }
 
 internal void PollGameControllers(game_input *NewInput, game_input *OldInput) {
-
-    for (int i = 0; i < MAX_CONTROLLERS; i++) {
+    for (int i = 0; i < NUM_GAME_CONTROLLERS; i++) {
         SDL_GameController *ControllerHandle = ControllerHandles[i];
         SDL_Haptic *Haptic = HapticHandles[i];
         if (ControllerHandle == 0 ||
@@ -283,18 +290,24 @@ internal void PollGameControllers(game_input *NewInput, game_input *OldInput) {
             continue;
         }
 
-        game_controller_input *NewController = &NewInput->Controllers[i];
-        game_controller_input *OldController = &OldInput->Controllers[i];
+        game_controller_input *NewController =
+            GetGameController(NewInput, i + NUM_KEYBOARD_CONTROLLERS);
+        *NewController = {0}; // Zero Controller
+
+        game_controller_input *OldController =
+            GetGameController(OldInput, i + NUM_KEYBOARD_CONTROLLERS);
 
         SDLProcessButtonState(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_UP,
-                              &NewController->Up, &OldController->Up);
+                              &NewController->MoveUp, &OldController->MoveUp);
         SDLProcessButtonState(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_DOWN,
-                              &NewController->Down, &OldController->Down);
+                              &NewController->MoveDown,
+                              &OldController->MoveDown);
         SDLProcessButtonState(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_LEFT,
-                              &NewController->Left, &OldController->Left);
-        SDLProcessButtonState(ControllerHandle,
-                              SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
-                              &NewController->Right, &OldController->Right);
+                              &NewController->MoveLeft,
+                              &OldController->MoveLeft);
+        SDLProcessButtonState(
+            ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+            &NewController->MoveRight, &OldController->MoveRight);
         SDLProcessButtonState(
             ControllerHandle, SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
             &NewController->LeftShoulder, &OldController->LeftShoulder);
@@ -323,12 +336,12 @@ internal void PollGameControllers(game_input *NewInput, game_input *OldInput) {
         }
         NewController->MinY = NewController->MaxY = NewController->EndY;
 
-        // bool XButton = SDL_GameControllerGetButton(ControllerHandle,
-        // SDL_CONTROLLER_BUTTON_X); bool YButton =
+        // bool32 XButton = SDL_GameControllerGetButton(ControllerHandle,
+        // SDL_CONTROLLER_BUTTON_X); bool32 YButton =
         // SDL_GameControllerGetButton(ControllerHandle,
-        // SDL_CONTROLLER_BUTTON_Y); bool Start =
+        // SDL_CONTROLLER_BUTTON_Y); bool32 Start =
         // SDL_GameControllerGetButton(ControllerHandle,
-        // SDL_CONTROLLER_BUTTON_START); bool Back =
+        // SDL_CONTROLLER_BUTTON_START); bool32 Back =
         // SDL_GameControllerGetButton(ControllerHandle,
         // SDL_CONTROLLER_BUTTON_BACK);
     }
@@ -420,7 +433,7 @@ internal void InitSDLAudio(circular_audio_buffer *AudioBuffer,
 
     if (ObtainedAudioSpec.format != DesiredAudioSpec.format) {
         printf("Obtained SDL Spec doesn't match requested format\n");
-        SDL_CloseAudioDevice(AudioBuffer->DeviceID);
+        GlobalRunning = false;
         return;
     }
 
@@ -455,24 +468,50 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
     game_memory GameMemory = {};
     uint64 CountersPerSecond = SDL_GetPerformanceFrequency();
     uint64 LastCounter = SDL_GetPerformanceCounter();
-    game_input Input[2];
-    game_input *NewInput = &Input[0];
-    game_input *OldInput = &Input[1];
+
+    game_input Input[2] = {0};
+    game_input *NewInput = &Input[1];
+    game_input *OldInput = &Input[0];
 
     AllocateGameMemory(&GameMemory);
     SDLResizeTexture(&GlobalBackBuffer, Renderer, GetWindowDimensions(Window));
     InitGameControllers();
     InitSDLAudio(&CircularBuffer, &GameSoundBuffer);
 
-    // if( !GameMemory || !GameSoundBuffer.Samples ){
-    // don't start game if memory is messed up
-    // }
+    if (!GameMemory.PermanentStorage || !GameMemory.TransientStorage ||
+        !GameSoundBuffer.Samples) {
+        return;
+    }
 
     while (GlobalRunning) {
 
+        // We do this outside HandleKeyboardEvent b/c it only triggers if we get an event
+        // Init keyboard controller (first controller) and set to empty
+        game_controller_input *NewKeyboardController = GetGameController(NewInput, 0);
+        *NewKeyboardController = {0}; // Zero Controller
+        game_controller_input *OldKeyboardController = GetGameController(OldInput, 0);
+        for (int i = 0; i < ArrayCount(OldKeyboardController->Buttons); i++) {
+            NewKeyboardController->Buttons[i].EndedDown =
+                OldKeyboardController->Buttons[i].EndedDown;
+        }
+
         SDL_Event Event;
         while (SDL_PollEvent(&Event)) {
-            HandleEvent(Event);
+            switch (Event.type) {
+            case SDL_WINDOWEVENT: {
+                HandleWindowEvent(Event.window);
+            } break;
+
+            case SDL_KEYDOWN:
+            case SDL_KEYUP: {
+                HandleKeyboardEvent(Event.key, NewKeyboardController);
+            } break;
+
+            case SDL_QUIT: {
+                printf("SDL QUIT\n");
+                GlobalRunning = false;
+            } break;
+            }
         }
 
         // Init stuff for game call
@@ -497,14 +536,14 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
         game_input *Temp = OldInput;
         OldInput = NewInput;
         NewInput = Temp;
+        *NewInput = {0};
+
     }
 
     SDL_CloseAudioDevice(CircularBuffer.DeviceID);
-
     // We might want to free some more ptrs
     free(CircularBuffer.Buffer);
     free(GameSoundBuffer.Samples);
-
     CloseGameControllers();
 }
 
