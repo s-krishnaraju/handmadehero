@@ -56,10 +56,8 @@ global_variable SDL_Haptic *HapticHandles[NUM_GAME_CONTROLLERS];
 
 internal void DEBUGPlatformFreeFileMemory(void *Memory) { free(Memory); }
 
-internal bool32 DEBUGPlatformWriteEntireFile(char *Filename, uint32 MemorySize,
-                                             void *Memory) {
-    int FileHandle = open(Filename, O_WRONLY | O_CREAT,
-                          S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+internal bool32 DEBUGPlatformWriteEntireFile(char *Filename, uint32 MemorySize, void *Memory) {
+    int FileHandle = open(Filename, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
     if (FileHandle == -1) {
         return false;
     }
@@ -120,8 +118,7 @@ internal debug_read_file_result DEBUGPlatformReadEntireFile(char *Filename) {
     return Result;
 }
 
-internal void SDLResizeTexture(game_offscreen_buffer *Buffer,
-                               SDL_Renderer *Renderer,
+internal void SDLResizeTexture(game_offscreen_buffer *Buffer, SDL_Renderer *Renderer,
                                sdl_window_dimension WindowDimension) {
     int BytesPerPixel = 4; // 3 bytes for RGB + 1 for alignment
 
@@ -134,9 +131,9 @@ internal void SDLResizeTexture(game_offscreen_buffer *Buffer,
     }
 
     int NumPixels = WindowDimension.Width * WindowDimension.Height;
-    GlobalSDLTexture = SDL_CreateTexture(
-        Renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-        WindowDimension.Width, WindowDimension.Height);
+    GlobalSDLTexture =
+        SDL_CreateTexture(Renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+                          WindowDimension.Width, WindowDimension.Height);
     Buffer->Memory = mmap(0, NumPixels * BytesPerPixel, PROT_READ | PROT_WRITE,
                           MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     Buffer->Width = WindowDimension.Width;
@@ -144,8 +141,7 @@ internal void SDLResizeTexture(game_offscreen_buffer *Buffer,
     Buffer->Pitch = BytesPerPixel * Buffer->Width;
 }
 
-internal void SDLUpdateWindow(game_offscreen_buffer Buffer,
-                              SDL_Renderer *Renderer) {
+internal void SDLUpdateWindow(game_offscreen_buffer Buffer, SDL_Renderer *Renderer) {
     SDL_RenderClear(Renderer);
     SDL_UpdateTexture(GlobalSDLTexture, 0, Buffer.Memory, Buffer.Pitch);
     SDL_RenderCopy(Renderer, GlobalSDLTexture, 0, 0);
@@ -171,14 +167,13 @@ internal void SDLProcessKeyPress(game_button_state *NewState, bool32 isDown) {
     NewState->HalfTransition++;
 }
 
-internal void HandleKeyboardEvent(SDL_KeyboardEvent Event, game_controller_input* Controller) {
+internal void HandleKeyboardEvent(SDL_KeyboardEvent Event, game_controller_input *Controller) {
     SDL_Keycode Keycode = Event.keysym.sym;
     bool32 IsDown = Event.state == SDL_PRESSED;
     bool32 WasDown = false;
     if (Event.state == SDL_RELEASED || Event.repeat != 0) {
         WasDown = true;
     }
-
 
     if (Keycode == SDLK_F4) {
         bool32 AltKeyWasDown = Event.keysym.mod & KMOD_ALT;
@@ -272,20 +267,29 @@ internal void CloseGameControllers() {
     }
 }
 
-internal void SDLProcessButtonState(SDL_GameController *ControllerHandle,
-                                    SDL_GameControllerButton Button,
-                                    game_button_state *NewState,
-                                    game_button_state *OldState) {
-    NewState->EndedDown = SDL_GameControllerGetButton(ControllerHandle, Button);
+internal void SDLProcessGameControllerButton(bool32 Value, game_button_state *NewState,
+                                             game_button_state *OldState) {
+    NewState->EndedDown = Value;
     NewState->HalfTransition = (NewState->EndedDown != OldState->EndedDown);
+}
+
+internal real32 SDLProcessGameControllerAxisValue(int16 Value, int16 DeadZoneThreshold) {
+    real32 Result = 0;
+
+    if (Value < -DeadZoneThreshold) {
+        Result = (real32)(Value + DeadZoneThreshold) / (32768.0f - DeadZoneThreshold);
+    } else if (Value > DeadZoneThreshold) {
+        Result = (real32)(Value - DeadZoneThreshold) / (32767.0f - DeadZoneThreshold);
+    }
+
+    return Result;
 }
 
 internal void PollGameControllers(game_input *NewInput, game_input *OldInput) {
     for (int i = 0; i < NUM_GAME_CONTROLLERS; i++) {
         SDL_GameController *ControllerHandle = ControllerHandles[i];
         SDL_Haptic *Haptic = HapticHandles[i];
-        if (ControllerHandle == 0 ||
-            !SDL_GameControllerGetAttached(ControllerHandle)) {
+        if (ControllerHandle == 0 || !SDL_GameControllerGetAttached(ControllerHandle)) {
             // Controller not initialized or plugged in
             continue;
         }
@@ -297,60 +301,79 @@ internal void PollGameControllers(game_input *NewInput, game_input *OldInput) {
         game_controller_input *OldController =
             GetGameController(OldInput, i + NUM_KEYBOARD_CONTROLLERS);
 
-        SDLProcessButtonState(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_UP,
-                              &NewController->MoveUp, &OldController->MoveUp);
-        SDLProcessButtonState(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_DOWN,
-                              &NewController->MoveDown,
-                              &OldController->MoveDown);
-        SDLProcessButtonState(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_LEFT,
-                              &NewController->MoveLeft,
-                              &OldController->MoveLeft);
-        SDLProcessButtonState(
-            ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
-            &NewController->MoveRight, &OldController->MoveRight);
-        SDLProcessButtonState(
-            ControllerHandle, SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
+        NewController->IsConnected = true;
+
+        SDLProcessGameControllerButton(
+            SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_LEFTSHOULDER),
             &NewController->LeftShoulder, &OldController->LeftShoulder);
-        SDLProcessButtonState(
-            ControllerHandle, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+        SDLProcessGameControllerButton(
+            SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER),
             &NewController->RightShoulder, &OldController->RightShoulder);
-        NewController->StartX = OldController->EndX;
-        NewController->StartY = OldController->EndY;
 
-        int16 StickX = SDL_GameControllerGetAxis(ControllerHandle,
-                                                 SDL_CONTROLLER_AXIS_LEFTX);
-        int16 StickY = SDL_GameControllerGetAxis(ControllerHandle,
-                                                 SDL_CONTROLLER_AXIS_LEFTY);
+        SDLProcessGameControllerButton(
+            SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_A),
+            &NewController->ActionDown, &OldController->ActionDown);
 
-        if (StickX < 0) {
-            NewController->EndX = StickX / 32768.0f;
-        } else {
-            NewController->EndX = StickX / 32767.0f;
+        SDLProcessGameControllerButton(
+            SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_B),
+            &NewController->ActionRight, &OldController->ActionRight);
+
+        SDLProcessGameControllerButton(
+            SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_X),
+            &NewController->ActionLeft, &OldController->ActionLeft);
+        SDLProcessGameControllerButton(
+            SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_Y),
+            &NewController->ActionRight, &OldController->ActionRight);
+
+        int16 StickX = SDL_GameControllerGetAxis(ControllerHandle, SDL_CONTROLLER_AXIS_LEFTX);
+        int16 StickY = SDL_GameControllerGetAxis(ControllerHandle, SDL_CONTROLLER_AXIS_LEFTY);
+        NewController->StickAverageX = SDLProcessGameControllerAxisValue(StickX, 1);
+        NewController->StickAverageY = -SDLProcessGameControllerAxisValue(StickY, 1);
+
+        if (NewController->StickAverageX != 0.0f || NewController->StickAverageY != 0.0f) {
+            NewController->IsAnalog = true;
         }
-        NewController->MinX = NewController->MaxX = NewController->EndX;
 
-        if (StickY < 0) {
-            NewController->EndY = StickY / 32768.0f;
-        } else {
-            NewController->EndY = StickY / 32767.0f;
+        bool DpadLeft =
+            SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+        bool DpadRight =
+            SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+        bool DpadUp = SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_UP);
+        bool DpadDown =
+            SDL_GameControllerGetButton(ControllerHandle, SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+
+        if (DpadLeft) {
+            NewController->StickAverageX = -1.0f;
         }
-        NewController->MinY = NewController->MaxY = NewController->EndY;
+        if (DpadRight) {
+            NewController->StickAverageX = 1.0f;
+        }
 
-        // bool32 XButton = SDL_GameControllerGetButton(ControllerHandle,
-        // SDL_CONTROLLER_BUTTON_X); bool32 YButton =
-        // SDL_GameControllerGetButton(ControllerHandle,
-        // SDL_CONTROLLER_BUTTON_Y); bool32 Start =
-        // SDL_GameControllerGetButton(ControllerHandle,
-        // SDL_CONTROLLER_BUTTON_START); bool32 Back =
-        // SDL_GameControllerGetButton(ControllerHandle,
-        // SDL_CONTROLLER_BUTTON_BACK);
+        if (DpadUp) {
+            NewController->StickAverageY = 1.0f;
+        }
+        if (DpadDown) {
+            NewController->StickAverageY = -1.0f;
+        }
+
+        real32 Threshold = 0.5f;
+
+        SDLProcessGameControllerButton(NewController->StickAverageX > Threshold,
+                                       &NewController->MoveRight, &OldController->MoveRight);
+
+        SDLProcessGameControllerButton(NewController->StickAverageX < -Threshold,
+                                       &NewController->MoveLeft, &OldController->MoveLeft);
+
+        SDLProcessGameControllerButton(NewController->StickAverageY > Threshold,
+                                       &NewController->MoveUp, &OldController->MoveUp);
+        SDLProcessGameControllerButton(NewController->StickAverageY < -Threshold,
+                                       &NewController->MoveDown, &OldController->MoveDown);
     }
 }
 
 internal int GetSamplesToWrite(circular_audio_buffer *AudioBuffer) {
     int TargetCursor =
-        (AudioBuffer->ReadCursor -
-         AudioBuffer->LatencySampleCount * AudioBuffer->BytesPerSample) %
+        (AudioBuffer->ReadCursor - AudioBuffer->LatencySampleCount * AudioBuffer->BytesPerSample) %
         AudioBuffer->Size;
     int RegionOne = TargetCursor - AudioBuffer->WriteCursor;
     int RegionTwo = 0;
@@ -381,8 +404,7 @@ internal void SDLFeedAudioDevice(circular_audio_buffer *AudioBuffer,
     }
 
     int BytesWritten = SoundBuffer->SampleCount * AudioBuffer->BytesPerSample;
-    AudioBuffer->WriteCursor =
-        (AudioBuffer->WriteCursor + BytesWritten) % AudioBuffer->Size;
+    AudioBuffer->WriteCursor = (AudioBuffer->WriteCursor + BytesWritten) % AudioBuffer->Size;
     SDL_UnlockAudioDevice(AudioBuffer->DeviceID);
 }
 
@@ -395,11 +417,9 @@ internal void SDLAudioCallback(void *UserData, uint8 *OutputAudio, int Length) {
         RegionTwo = Length - RegionOne;
     }
 
-    memcpy(OutputAudio, AudioBuffer->Buffer + AudioBuffer->ReadCursor,
-           RegionOne);
+    memcpy(OutputAudio, AudioBuffer->Buffer + AudioBuffer->ReadCursor, RegionOne);
     memcpy(OutputAudio + RegionOne, AudioBuffer->Buffer, RegionTwo);
-    AudioBuffer->ReadCursor =
-        (AudioBuffer->ReadCursor + Length) % AudioBuffer->Size;
+    AudioBuffer->ReadCursor = (AudioBuffer->ReadCursor + Length) % AudioBuffer->Size;
 }
 
 internal void InitSDLAudio(circular_audio_buffer *AudioBuffer,
@@ -407,8 +427,7 @@ internal void InitSDLAudio(circular_audio_buffer *AudioBuffer,
 
     AudioBuffer->SamplesPerSecond = 44100;
     AudioBuffer->BytesPerSample = sizeof(int16) * 2;
-    AudioBuffer->Size =
-        (AudioBuffer->SamplesPerSecond * AudioBuffer->BytesPerSample);
+    AudioBuffer->Size = (AudioBuffer->SamplesPerSecond * AudioBuffer->BytesPerSample);
     AudioBuffer->Buffer = (uint8 *)calloc(AudioBuffer->Size, 1);
     // NOTE: offset write cursor by one sample to fill initial buffer
     AudioBuffer->WriteCursor = AudioBuffer->BytesPerSample;
@@ -428,8 +447,7 @@ internal void InitSDLAudio(circular_audio_buffer *AudioBuffer,
     DesiredAudioSpec.samples = 4096;
     DesiredAudioSpec.userdata = AudioBuffer;
 
-    AudioBuffer->DeviceID =
-        SDL_OpenAudioDevice(NULL, 0, &DesiredAudioSpec, &ObtainedAudioSpec, 0);
+    AudioBuffer->DeviceID = SDL_OpenAudioDevice(NULL, 0, &DesiredAudioSpec, &ObtainedAudioSpec, 0);
 
     if (ObtainedAudioSpec.format != DesiredAudioSpec.format) {
         printf("Obtained SDL Spec doesn't match requested format\n");
@@ -450,15 +468,31 @@ internal void AllocateGameMemory(game_memory *Memory) {
 
     Memory->PermanentStorageSize = Megabytes(64);
     Memory->TransientStorageSize = Gigabytes(4);
-    uint64 TotalStorageSize =
-        Memory->PermanentStorageSize + Memory->TransientStorageSize;
-    Memory->PermanentStorage = mmap(0, TotalStorageSize, PROT_READ | PROT_WRITE,
-                                    MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    uint64 TotalStorageSize = Memory->PermanentStorageSize + Memory->TransientStorageSize;
+    Memory->PermanentStorage =
+        mmap(0, TotalStorageSize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
     Assert(Memory->PermanentStorage);
 
-    Memory->TransientStorage =
-        ((uint8 *)Memory->PermanentStorage + Memory->PermanentStorageSize);
+    Memory->TransientStorage = ((uint8 *)Memory->PermanentStorage + Memory->PermanentStorageSize);
+}
+
+internal void SDLHandleEvent(SDL_Event Event, game_controller_input *KeyboardController) {
+    switch (Event.type) {
+    case SDL_WINDOWEVENT: {
+        HandleWindowEvent(Event.window);
+    } break;
+
+    case SDL_KEYDOWN:
+    case SDL_KEYUP: {
+        HandleKeyboardEvent(Event.key, KeyboardController);
+    } break;
+
+    case SDL_QUIT: {
+        printf("SDL QUIT\n");
+        GlobalRunning = false;
+    } break;
+    }
 }
 
 internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
@@ -478,17 +512,16 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
     InitGameControllers();
     InitSDLAudio(&CircularBuffer, &GameSoundBuffer);
 
-    if (!GameMemory.PermanentStorage || !GameMemory.TransientStorage ||
-        !GameSoundBuffer.Samples) {
+    if (!GameMemory.PermanentStorage || !GameMemory.TransientStorage || !GameSoundBuffer.Samples) {
         return;
     }
 
     while (GlobalRunning) {
-
-        // We do this outside HandleKeyboardEvent b/c it only triggers if we get an event
-        // Init keyboard controller (first controller) and set to empty
+        // We do this outside HandleKeyboardEvent b/c it only triggers if we get
+        // an event Init keyboard controller (first controller) and set to empty
         game_controller_input *NewKeyboardController = GetGameController(NewInput, 0);
         *NewKeyboardController = {0}; // Zero Controller
+        NewKeyboardController->IsConnected = true;
         game_controller_input *OldKeyboardController = GetGameController(OldInput, 0);
         for (int i = 0; i < ArrayCount(OldKeyboardController->Buttons); i++) {
             NewKeyboardController->Buttons[i].EndedDown =
@@ -497,21 +530,7 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
 
         SDL_Event Event;
         while (SDL_PollEvent(&Event)) {
-            switch (Event.type) {
-            case SDL_WINDOWEVENT: {
-                HandleWindowEvent(Event.window);
-            } break;
-
-            case SDL_KEYDOWN:
-            case SDL_KEYUP: {
-                HandleKeyboardEvent(Event.key, NewKeyboardController);
-            } break;
-
-            case SDL_QUIT: {
-                printf("SDL QUIT\n");
-                GlobalRunning = false;
-            } break;
-            }
+            SDLHandleEvent(Event, NewKeyboardController);
         }
 
         // Init stuff for game call
@@ -519,8 +538,7 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
         GameSoundBuffer.SampleCount = GetSamplesToWrite(&CircularBuffer);
 
         // Main game call (render, input, sound, etc ...)
-        GameUpdateAndRender(&GameMemory, &GlobalBackBuffer, &GameSoundBuffer,
-                            NewInput);
+        GameUpdateAndRender(&GameMemory, &GlobalBackBuffer, &GameSoundBuffer, NewInput);
 
         // Platform stuff to show results from game
         SDLFeedAudioDevice(&CircularBuffer, &GameSoundBuffer);
@@ -537,7 +555,6 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
         OldInput = NewInput;
         NewInput = Temp;
         *NewInput = {0};
-
     }
 
     SDL_CloseAudioDevice(CircularBuffer.DeviceID);
@@ -549,14 +566,13 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
 
 int main(int argc, char *argv[]) {
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC |
-                 SDL_INIT_AUDIO) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC | SDL_INIT_AUDIO) !=
+        0) {
         // TODO: do something on error
     }
 
-    SDL_Window *Window = SDL_CreateWindow(
-        "Handmade Hero", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640,
-        480, SDL_WINDOW_RESIZABLE);
+    SDL_Window *Window = SDL_CreateWindow("Handmade Hero", SDL_WINDOWPOS_UNDEFINED,
+                                          SDL_WINDOWPOS_UNDEFINED, 640, 480, SDL_WINDOW_RESIZABLE);
     if (!Window)
         return 0;
     SDL_Renderer *Renderer = SDL_CreateRenderer(Window, -1, 0);

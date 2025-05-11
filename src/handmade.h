@@ -71,22 +71,15 @@ struct game_button_state {
 };
 
 struct game_controller_input {
+    bool32 IsConnected; 
     bool32 IsAnalog;
-    real32 StartX;
-    real32 EndX;
-    real32 MinX;
-    real32 MaxX;
-    real32 StartY;
-    real32 EndY;
-    real32 MinY;
-    real32 MaxY;
     real32 StickAverageX;
     real32 StickAverageY;
 
 
     // gives access through both ControllerInput.Buttons or
     // ControllerInput.MoveUp
-    union {
+    union { 
         game_button_state Buttons[12];
         struct {
             game_button_state MoveUp;
@@ -105,6 +98,7 @@ struct game_controller_input {
             game_button_state Back;
             game_button_state Start;
 
+            // All buttons must be above this line 
             game_button_state Terminator;
         };
     };

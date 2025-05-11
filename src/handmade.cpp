@@ -52,6 +52,9 @@ internal void GameUpdateAndRender(game_memory *Memory,
                                   game_input *Input) {
     game_state *GameState = (game_state *)Memory;
     
+    // Check that game controller buttons has corrrect buttons length
+    Assert(((&Input->Controllers[0].Terminator - &Input->Controllers[0].Buttons[0])  == ArrayCount(Input->Controllers->Buttons) ))
+    
     if (!Memory->IsInitialized) {
         GameState->BlueOffset = 0;
         GameState->GreenOffset = 0;
