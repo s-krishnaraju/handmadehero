@@ -170,10 +170,11 @@ internal void SDLProcessKeyPress(game_button_state *NewState, bool32 isDown) {
 internal void HandleKeyboardEvent(SDL_KeyboardEvent Event, game_controller_input *Controller) {
     SDL_Keycode Keycode = Event.keysym.sym;
     bool32 IsDown = Event.state == SDL_PRESSED;
-    bool32 WasDown = false;
-    if (Event.state == SDL_RELEASED || Event.repeat != 0) {
-        WasDown = true;
-    }
+
+    // bool32 WasDown = false;
+    // if (Event.state == SDL_RELEASED || Event.repeat != 0) {
+    //     WasDown = true;
+    // }
 
     if (Keycode == SDLK_F4) {
         bool32 AltKeyWasDown = Event.keysym.mod & KMOD_ALT;
@@ -495,13 +496,30 @@ internal void SDLHandleEvent(SDL_Event Event, game_controller_input *KeyboardCon
     }
 }
 
+internal int SDLGetWindowRefreshRate(SDL_Window *Window) {
+    SDL_DisplayMode Mode;
+    int DisplayIndex = SDL_GetWindowDisplayIndex(Window);
+    int DefaultRefreshRate = 60;
+
+    if (SDL_GetDesktopDisplayMode(DisplayIndex, &Mode) != 0) {
+        return DefaultRefreshRate;
+    }
+    if (Mode.refresh_rate == 0) {
+        return DefaultRefreshRate;
+    }
+
+    return Mode.refresh_rate;
+}
+
+internal real32 SDLGetSecondsElapsed(uint64 CurrentCounter, uint64 LastCounter) {
+    return ((real32)(CurrentCounter - LastCounter)) / ((real32)SDL_GetPerformanceFrequency());
+}
+
 internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
     GlobalRunning = true;
     circular_audio_buffer CircularBuffer;
     game_sound_output_buffer GameSoundBuffer;
-    game_memory GameMemory = {};
-    uint64 CountersPerSecond = SDL_GetPerformanceFrequency();
-    uint64 LastCounter = SDL_GetPerformanceCounter();
+    game_memory GameMemory = {0};
 
     game_input Input[2] = {0};
     game_input *NewInput = &Input[1];
@@ -516,6 +534,10 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
         return;
     }
 
+    int MonitorRefreshHz = SDLGetWindowRefreshRate(Window);
+    int GameUpdateHz = MonitorRefreshHz / 2;
+    real32 TargetSecondsPerFrame = 1.0f / (real32)GameUpdateHz;
+    uint64 LastCounter = SDL_GetPerformanceCounter();
     while (GlobalRunning) {
         // We do this outside HandleKeyboardEvent b/c it only triggers if we get
         // an event Init keyboard controller (first controller) and set to empty
@@ -540,15 +562,29 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
         // Main game call (render, input, sound, etc ...)
         GameUpdateAndRender(&GameMemory, &GlobalBackBuffer, &GameSoundBuffer, NewInput);
 
-        // Platform stuff to show results from game
-        SDLFeedAudioDevice(&CircularBuffer, &GameSoundBuffer);
-        SDLUpdateWindow(GlobalBackBuffer, Renderer);
+        real32 SecondsElapsedForWork =
+            SDLGetSecondsElapsed(SDL_GetPerformanceCounter(), LastCounter);
 
-        int EndCounter = SDL_GetPerformanceCounter();
-        int ElapsedCounters = EndCounter - LastCounter;
-        int MSPerFrame = (ElapsedCounters * 1000) / CountersPerSecond;
-        int FPS = CountersPerSecond / ElapsedCounters;
-        LastCounter = EndCounter;
+        if (SecondsElapsedForWork > TargetSecondsPerFrame) {
+            // TODO: We missed a frame, handle it
+        } else {
+            // Sleep until end of frame
+            // Allow 1ms slack
+            real32 SleepTime = 1000 * (TargetSecondsPerFrame - SecondsElapsedForWork) - 1;
+            SDL_Delay(SleepTime);
+
+            while (SDLGetSecondsElapsed(SDL_GetPerformanceCounter(), LastCounter) <
+                   TargetSecondsPerFrame) {
+                // Wait till end
+            }
+        }
+
+        printf("%.6f\n", SDLGetSecondsElapsed(SDL_GetPerformanceCounter(), LastCounter));
+        LastCounter = SDL_GetPerformanceCounter();
+
+        // Platform stuff to show updated game state
+        SDLUpdateWindow(GlobalBackBuffer, Renderer);
+        SDLFeedAudioDevice(&CircularBuffer, &GameSoundBuffer);
 
         // Set old input
         game_input *Temp = OldInput;
@@ -575,7 +611,7 @@ int main(int argc, char *argv[]) {
                                           SDL_WINDOWPOS_UNDEFINED, 640, 480, SDL_WINDOW_RESIZABLE);
     if (!Window)
         return 0;
-    SDL_Renderer *Renderer = SDL_CreateRenderer(Window, -1, 0);
+    SDL_Renderer *Renderer = SDL_CreateRenderer(Window, -1, SDL_RENDERER_PRESENTVSYNC);
     if (!Renderer)
         return 0;
 

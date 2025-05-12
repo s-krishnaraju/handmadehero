@@ -1,12 +1,6 @@
 #include "handmade.h"
 #include <stdio.h>
 
-// global_variable int ToneHz = 256;
-// global_variable int ToneVolume = 3000;
-// global_variable int SampleIndex = 0;
-// global_variable int BlueOffset = 0;
-// global_variable int GreenOffset = 0;
-
 internal int16 GetSineSampleValue(int SampleIndex, int ToneVolume,
                                   int WavePeriod) {
     real32 Time = (real32)SampleIndex / (real32)WavePeriod;
