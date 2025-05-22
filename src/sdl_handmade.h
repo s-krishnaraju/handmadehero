@@ -13,9 +13,11 @@ struct circular_audio_buffer {
     int ReadCursor;
     int LatencySampleCount;
     int SamplesPerSecond;
-    int SampleIndex;
     SDL_AudioDeviceID DeviceID;
 };
 
-
+struct debug_sound_cursor { 
+    int PlayCursor; 
+    int WriteCursor; 
+};
 

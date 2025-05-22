@@ -120,10 +120,10 @@ internal debug_read_file_result DEBUGPlatformReadEntireFile(char *Filename) {
 
 internal void SDLResizeTexture(game_offscreen_buffer *Buffer, SDL_Renderer *Renderer,
                                sdl_window_dimension WindowDimension) {
-    int BytesPerPixel = 4; // 3 bytes for RGB + 1 for alignment
+    Buffer->BytesPerPixel = 4; // 3 bytes for RGB + 1 for alignment
 
     if (Buffer->Memory) {
-        munmap(Buffer->Memory, Buffer->Width * Buffer->Height * BytesPerPixel);
+        munmap(Buffer->Memory, Buffer->Width * Buffer->Height * Buffer->BytesPerPixel);
     }
 
     if (GlobalSDLTexture) {
@@ -134,11 +134,11 @@ internal void SDLResizeTexture(game_offscreen_buffer *Buffer, SDL_Renderer *Rend
     GlobalSDLTexture =
         SDL_CreateTexture(Renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
                           WindowDimension.Width, WindowDimension.Height);
-    Buffer->Memory = mmap(0, NumPixels * BytesPerPixel, PROT_READ | PROT_WRITE,
+    Buffer->Memory = mmap(0, NumPixels * Buffer->BytesPerPixel, PROT_READ | PROT_WRITE,
                           MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     Buffer->Width = WindowDimension.Width;
     Buffer->Height = WindowDimension.Height;
-    Buffer->Pitch = BytesPerPixel * Buffer->Width;
+    Buffer->Pitch = Buffer->BytesPerPixel * Buffer->Width;
 }
 
 internal void SDLUpdateWindow(game_offscreen_buffer Buffer, SDL_Renderer *Renderer) {
@@ -401,7 +401,6 @@ internal void SDLFeedAudioDevice(circular_audio_buffer *AudioBuffer,
         Buffer1 = (int16 *)(AudioBuffer->Buffer + BytesOffset);
         *Buffer1++ = *Buffer2++;
         *Buffer1++ = *Buffer2++;
-        AudioBuffer->SampleIndex++;
     }
 
     int BytesWritten = SoundBuffer->SampleCount * AudioBuffer->BytesPerSample;
@@ -426,14 +425,14 @@ internal void SDLAudioCallback(void *UserData, uint8 *OutputAudio, int Length) {
 internal void InitSDLAudio(circular_audio_buffer *AudioBuffer,
                            game_sound_output_buffer *SoundOutput) {
 
-    AudioBuffer->SamplesPerSecond = 44100;
+    AudioBuffer->SamplesPerSecond = 48000;
     AudioBuffer->BytesPerSample = sizeof(int16) * 2;
     AudioBuffer->Size = (AudioBuffer->SamplesPerSecond * AudioBuffer->BytesPerSample);
     AudioBuffer->Buffer = (uint8 *)calloc(AudioBuffer->Size, 1);
     // NOTE: offset write cursor by one sample to fill initial buffer
     AudioBuffer->WriteCursor = AudioBuffer->BytesPerSample;
     AudioBuffer->ReadCursor = 0;
-    AudioBuffer->LatencySampleCount = AudioBuffer->SamplesPerSecond / 15;
+    AudioBuffer->LatencySampleCount = AudioBuffer->SamplesPerSecond / 100;
 
     SoundOutput->SamplesPerSecond = AudioBuffer->SamplesPerSecond;
     SoundOutput->Samples = (int16 *)calloc(AudioBuffer->Size, 1);
@@ -515,6 +514,34 @@ internal real32 SDLGetSecondsElapsed(uint64 CurrentCounter, uint64 LastCounter) 
     return ((real32)(CurrentCounter - LastCounter)) / ((real32)SDL_GetPerformanceFrequency());
 }
 
+internal void DrawVerticalLine(game_offscreen_buffer *BackBuffer, uint32 Color, int Top, int Bottom,
+                               int X) {
+    uint8 *Pixel =
+        ((uint8 *)BackBuffer->Memory) + X * BackBuffer->BytesPerPixel + Top * BackBuffer->Pitch;
+    for (int i = Top; i < Bottom; i++) {
+        *(uint32 *)Pixel = Color;
+        Pixel += BackBuffer->Pitch;
+    }
+}
+
+internal void DisplayDebugPlayCursor(game_offscreen_buffer *BackBuffer,
+                                     circular_audio_buffer *AudioBuffer, int CursorCount,
+                                     debug_sound_cursor *Cursors) {
+    int PadX = 16;
+    int Top = PadX;
+    int Bottom = BackBuffer->Height - PadX;
+    real32 ConversionConstant = (real32)(BackBuffer->Width - PadX * 2) / (real32)AudioBuffer->Size;
+
+    for (int i = 0; i < CursorCount; i++) {
+        if (Cursors[i].PlayCursor) {
+            int ReadX = ConversionConstant * Cursors[i].PlayCursor;
+            int WriteX = ConversionConstant * Cursors[i].WriteCursor;
+            DrawVerticalLine(BackBuffer, 0x000FFFFF, Top, Bottom, ReadX);
+            DrawVerticalLine(BackBuffer, 0xFFFFFFFF, Top, Bottom, WriteX);
+        }
+    }
+}
+
 internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
     GlobalRunning = true;
     circular_audio_buffer CircularBuffer;
@@ -538,6 +565,10 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
     int GameUpdateHz = MonitorRefreshHz / 2;
     real32 TargetSecondsPerFrame = 1.0f / (real32)GameUpdateHz;
     uint64 LastCounter = SDL_GetPerformanceCounter();
+
+    debug_sound_cursor DebugSoundCursors[15] = {0};
+    int DebugSoundCursorIndex = 0;
+
     while (GlobalRunning) {
         // We do this outside HandleKeyboardEvent b/c it only triggers if we get
         // an event Init keyboard controller (first controller) and set to empty
@@ -579,11 +610,28 @@ internal void StartEventLoop(SDL_Window *Window, SDL_Renderer *Renderer) {
             }
         }
 
-        printf("%.6f\n", SDLGetSecondsElapsed(SDL_GetPerformanceCounter(), LastCounter));
+        real32 MSPerFrame =
+            1000.0f * (SDL_GetPerformanceCounter() - LastCounter) / SDL_GetPerformanceFrequency();
+        printf("%f\n", MSPerFrame);
         LastCounter = SDL_GetPerformanceCounter();
 
-        // Platform stuff to show updated game state
+#ifdef HANDMADE_INTERNAL
+        DebugSoundCursors[DebugSoundCursorIndex] = {
+            PlayCursor : CircularBuffer.ReadCursor,
+            WriteCursor : CircularBuffer.WriteCursor,
+        };
+
+        DebugSoundCursorIndex++;
+        if (DebugSoundCursorIndex >= ArrayCount(DebugSoundCursors)) {
+            DebugSoundCursorIndex = 0;
+        }
+        DisplayDebugPlayCursor(&GlobalBackBuffer, &CircularBuffer, ArrayCount(DebugSoundCursors),
+                               DebugSoundCursors);
+#endif
+
+       // Platform stuff to show updated game state
         SDLUpdateWindow(GlobalBackBuffer, Renderer);
+
         SDLFeedAudioDevice(&CircularBuffer, &GameSoundBuffer);
 
         // Set old input
